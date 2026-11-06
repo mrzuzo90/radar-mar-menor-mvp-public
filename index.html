@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://www.ign.es https://marmenor.upct.es; connect-src 'self' https://marmenor.upct.es https://api.open-meteo.com https://marine-api.open-meteo.com https://api.gbif.org https://nexo.carm.es; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta name="theme-color" content="#050a12" />
+  <title>Radar Mar Menor — Monitor Ambiental y Científico Verificable (MVP Estático)</title>
+  <meta name="description" content="Visor geoespacial estático del ecosistema del Mar Menor (Región de Murcia) con campañas científicas históricas de UPCT THREDDS (L1/L2/L4), estimación modelada numérica Open-Meteo, registros de biodiversidad GBIF y catálogo de playas de la CARM." />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a href="#radar-map" class="skip-link">Saltar directamente al mapa interactivo</a>
+
+  <header class="top-header" role="banner">
+    <div class="brand-block">
+      <div class="radar-emblem" aria-hidden="true"></div>
+      <div class="brand-titles">
+        <h1>
+          Radar Mar Menor
+          <span class="badge-mvp">MVP ESTÁTICO · FUENTES PÚBLICAS VERIFICADAS</span>
+        </h1>
+        <p class="brand-subtitle">
+          Oceanografía histórica (UPCT) · Modelo meteorológico actual (Open-Meteo) · Biodiversidad (GBIF) · Playas (CARM)
+        </p>
+      </div>
+    </div>
+
+    <div class="honesty-banner" role="note" aria-label="Aviso de transparencia tecnológica y frescura de datos">
+      <strong>Nota de transparencia:</strong> Interfaz inspirada visualmente en paneles tipo <em>God’s Eye View</em>. <strong>No existe integración ni afiliación</strong> con sistemas gubernamentales clasificados u homónimos. Opera 100% en navegador mediante consultas directas CORS: el catálogo oceanográfico <strong>UPCT THREDDS es histórico</strong> (última campaña publicada descubierta del catálogo) y <strong>Open-Meteo</strong> aporta estimaciones actuales derivadas de modelo numérico (no sensores <em>in situ</em>).
+    </div>
+
+    <div class="header-actions">
+      <div class="telemetry-pill" role="status" aria-live="polite" id="global-status-pill">
+        <span class="status-dot loading" id="global-status-dot"></span>
+        <span id="global-status-text">Verificando fuentes públicas CORS…</span>
+      </div>
+      <button type="button" class="btn btn-primary" id="btn-refresh-all" title="Volver a consultar las APIs públicas con soporte CORS desde el navegador">
+        ↻ Actualizar consultas
+      </button>
+      <button type="button" class="btn btn-active" id="btn-toggle-sweep" aria-pressed="true" title="Activar o pausar la retícula visual de barrido de radar">
+        ◎ Barrido Radar: Activo
+      </button>
+      <button type="button" class="btn" id="btn-center-lagoon" title="Centrar vista en la laguna del Mar Menor">
+        ⌖ Centrar Mar Menor
+      </button>
+    </div>
+  </header>
+
+  <main class="workspace-grid" id="workspace-grid" data-mobile-view="map">
+    <!-- PANEL IZQUIERDO: Controles, Capas, WMS, Filtros y Geolocalización -->
+    <aside class="side-panel left-panel" aria-label="Controles de capas, cartografía y privacidad">
+      <!-- Estado de sincronización de red -->
+      <div id="network-alert-box" class="status-banner loading" role="status" aria-live="polite">
+        Consultando catálogo histórico UPCT THREDDS, modelo numérico Open-Meteo y API GBIF…
+      </div>
+
+      <!-- 1. Capas de datos públicos verificables en navegador (CORS) -->
+      <section class="panel-section" aria-labelledby="sec-layers-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-layers-title">1. Capas de Datos Públicos (CORS)</h2>
+          <span class="section-badge" id="active-layers-badge">5 activas</span>
+        </div>
+
+        <div class="layer-toggle-list">
+          <div class="layer-item">
+            <label for="chk-layer-upct">
+              <input type="checkbox" id="chk-layer-upct" checked />
+              <span>
+                Estaciones Oceanográficas CTD (Histórico UPCT)
+                <span class="layer-meta">Catálogo histórico UPCT THREDDS OPeNDAP (L1 Servicio de Pesca)</span>
+              </span>
+            </label>
+            <span class="layer-count-pill" id="count-upct">…</span>
+          </div>
+
+          <div class="layer-item">
+            <label for="chk-layer-secchi">
+              <input type="checkbox" id="chk-layer-secchi" checked />
+              <span>
+                Transparencia Disco de Secchi (Histórico UPCT)
+                <span class="layer-meta">Catálogo histórico UPCT THREDDS OPeNDAP (L1 Secchi)</span>
+              </span>
+            </label>
+            <span class="layer-count-pill" id="count-secchi">…</span>
+          </div>
+
+          <div class="layer-item">
+            <label for="chk-layer-meteo">
+              <input type="checkbox" id="chk-layer-meteo" checked />
+              <span>
+                Celdas de Modelo Meteorológico y Marino (Open-Meteo)
+                <span class="layer-meta">Condiciones actuales derivadas de modelo numérico (con hora de consulta)</span>
+              </span>
+            </label>
+            <span class="layer-count-pill" id="count-meteo">…</span>
+          </div>
+
+          <div class="layer-item">
+            <label for="chk-layer-playas">
+              <input type="checkbox" id="chk-layer-playas" checked />
+              <span>
+                Catálogo de Playas del Mar Menor (CARM)
+                <span class="layer-meta">CSV estático de Datos Abiertos CARM (nexo.carm.es), UTM 30N → WGS84 en el navegador</span>
+              </span>
+            </label>
+            <span class="layer-count-pill" id="count-playas">…</span>
+          </div>
+
+          <div class="layer-item">
+            <label for="chk-layer-gbif">
+              <input type="checkbox" id="chk-layer-gbif" checked />
+              <span>
+                Biodiversidad Geolocalizada (GBIF)
+                <span class="layer-meta">Registros históricos indexados en Global Biodiversity Information Facility</span>
+              </span>
+            </label>
+            <span class="layer-count-pill" id="count-gbif">…</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Parámetros científicos CTD y Superposición Ráster WMS UPCT -->
+      <section class="panel-section" aria-labelledby="sec-science-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-science-title">2. Catálogo Histórico UPCT</h2>
+          <span class="section-badge" id="campaign-badge">Histórico</span>
+        </div>
+
+        <p class="section-note">
+          El servidor científico <code>marmenor.upct.es</code> publica campañas oceanográficas históricas discretas (no telemetría en tiempo real). Al iniciar, la aplicación descubre automáticamente la campaña más reciente disponible en el catálogo XML oficial.
+        </p>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-campaign">
+            <span>Campaña Histórica (Catálogo UPCT L1)</span>
+          </label>
+          <select id="sel-campaign" class="select-input" aria-label="Seleccionar campaña oceanográfica histórica del catálogo UPCT">
+            <option value="">Descubriendo campañas del catálogo UPCT…</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-ctd-metric">
+            <span>Métrica mostrada en estaciones CTD:</span>
+          </label>
+          <select id="sel-ctd-metric" class="select-input">
+            <option value="oxy_mgl">Oxígeno disuelto medio (mg/L)</option>
+            <option value="temp_c">Temperatura del agua (°C)</option>
+            <option value="sal_psu">Salinidad columna (PSU)</option>
+            <option value="chl_mgm3">Clorofila-a (mg/m³)</option>
+            <option value="turb_ftu">Turbidez (FTU)</option>
+            <option value="secchi_m">Transparencia Disco Secchi (m)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-wms-layer">
+            <span>Capa Ráster interpolada histórica WMS L2 (UPCT)</span>
+          </label>
+          <select id="sel-wms-layer" class="select-input">
+            <option value="none">Desactivada (solo vectores)</option>
+            <option value="Temperatura">Temperatura interpolada L2 (°C)</option>
+            <option value="Salinidad">Salinidad interpolada L2 (PSU)</option>
+            <option value="Oxigeno">Oxígeno disuelto L2 (mg/L)</option>
+            <option value="Clorofila">Clorofila-a L2 (mg/m³)</option>
+            <option value="Turbidez">Turbidez L2 (FTU)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-wms-depth">
+            <span>Profundidad del corte ráster WMS (Z)</span>
+          </label>
+          <select id="sel-wms-depth" class="select-input">
+            <option value="-0.5">-0.5 m (Superficie)</option>
+            <option value="-1.5">-1.5 m (Subsuperficial)</option>
+            <option value="-2.5">-2.5 m (Media columna)</option>
+            <option value="-3.5">-3.5 m (Profundidad media-baja)</option>
+            <option value="-4.5">-4.5 m (Fondo lagunar)</option>
+          </select>
+        </div>
+        <div id="wms-legend" class="wms-legend" hidden></div>
+        <div id="wms-status" class="prov-meta" role="status" aria-live="polite">Ráster desactivado.</div>
+      </section>
+
+      <!-- 3. Filtro interactivo y proveedor de mapa base -->
+      <section class="panel-section" aria-labelledby="sec-map-filter-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-map-filter-title">3. Cartografía Base y Filtros</h2>
+          <span class="section-badge">GIS</span>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-basemap">
+            <span>Proveedor de Mapa Base (Sin clave API)</span>
+          </label>
+          <select id="sel-basemap" class="select-input">
+            <option value="osm_dark">OpenStreetMap (Modo Radar Táctico Oscuro)</option>
+            <option value="osm_std">OpenStreetMap Estándar (Cartografía Vial ODbL)</option>
+            <option value="ign_pnoa">IGN España PNOA Ortofoto Satélite (WMS Oficial)</option>
+            <option value="ign_base">IGN España Mapa Base Callejero (WMTS Oficial)</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="inp-search-filter">
+            <span>Filtrar estaciones, playas, sectores o especies</span>
+          </label>
+          <input
+            type="search"
+            id="inp-search-filter"
+            class="text-input"
+            placeholder="Ej.: CTD-01, Secchi, Alcázares, modelo…"
+          />
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-sector-preset">
+            <span>Navegación rápida por sector lagunar</span>
+          </label>
+          <select id="sel-sector-preset" class="select-input">
+            <option value="all">Vista general del Mar Menor (Completa)</option>
+            <option value="norte">Cubeta Norte · Lo Pagán / Salinas San Pedro</option>
+            <option value="estacio">Gola del Estacio · Conexión Mediterráneo</option>
+            <option value="albujon">Desembocadura Rambla del Albujón / Los Alcázares</option>
+            <option value="sur">Cubeta Sur · Islas Menores / Islas Efebo</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- 4. Geolocalización opcional bajo permiso y privacidad clara -->
+      <section class="panel-section" aria-labelledby="sec-privacy-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-privacy-title">4. Ubicación y Privacidad</h2>
+          <span class="section-badge">Opcional</span>
+        </div>
+        <p class="section-note">
+          La geolocalización está <strong>desactivada por defecto</strong>. Solo se solicita al navegador si usted pulsa el botón inferior. Su posición se procesa exclusivamente en la memoria local del navegador para calcular la distancia a la estación CTD más cercana y <strong>nunca se envía a ningún servidor</strong>.
+        </p>
+        <div class="geo-btn-row">
+          <button type="button" class="btn" id="btn-locate-me">
+            📍 Situar mi ubicación (bajo permiso)
+          </button>
+          <button type="button" class="btn" id="btn-clear-location" style="display: none;">
+            ✕ Borrar mi ubicación
+          </button>
+        </div>
+        <div id="geo-status-msg" class="prov-meta" style="margin-top: 6px;" role="status" aria-live="polite">
+          Estado: Sin solicitud de geolocalización activa.
+        </div>
+      </section>
+    </aside>
+
+    <!-- VISOR CENTRAL: Mapa Interactivo + HUD Radar -->
+    <section class="map-stage" aria-label="Mapa interactivo del Mar Menor">
+      <!-- Indicadores KPI superiores (con distinción explícita entre histórico UPCT y modelo Open-Meteo) -->
+      <div class="map-kpi-bar" role="region" aria-label="Indicadores ambientales del Mar Menor">
+        <div class="kpi-card">
+          <span class="kpi-label">Temp. Agua (Histórico UPCT)</span>
+          <div class="kpi-value" id="kpi-water-temp">-- °C</div>
+          <span class="kpi-sub" id="kpi-water-temp-sub">Catálogo histórico L4…</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Oxígeno (Histórico UPCT)</span>
+          <div class="kpi-value" id="kpi-oxygen">-- mg/L</div>
+          <span class="kpi-sub" id="kpi-oxygen-sub">Catálogo histórico L4…</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Salinidad (Histórico UPCT)</span>
+          <div class="kpi-value" id="kpi-salinity">-- PSU</div>
+          <span class="kpi-sub" id="kpi-salinity-sub">Catálogo histórico L4…</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Clorofila / Turb. (Histórico)</span>
+          <div class="kpi-value" id="kpi-chl-turb">--</div>
+          <span class="kpi-sub" id="kpi-chl-turb-sub">Catálogo histórico L4…</span>
+        </div>
+        <div class="kpi-card kpi-card-model">
+          <span class="kpi-label">Pronóstico Actual (Modelo Open-Meteo)</span>
+          <div class="kpi-value" id="kpi-live-meteo">--</div>
+          <span class="kpi-sub" id="kpi-live-meteo-sub">Modelo numérico atmosférico…</span>
+        </div>
+      </div>
+
+      <!-- Superposición táctica de barrido de radar -->
+      <div class="radar-hud-overlay" id="radar-hud-overlay" aria-hidden="true">
+        <div class="radar-sweep-circle">
+          <div class="radar-sweep-beam"></div>
+        </div>
+      </div>
+
+      <!-- Contenedor Leaflet -->
+      <div id="radar-map" tabindex="0" role="application" aria-label="Mapa interactivo centrado en el Mar Menor, Región de Murcia"></div>
+
+      <!-- HUD inferior: Coordenadas + Leyenda semántica -->
+      <div class="map-bottom-hud">
+        <div class="hud-box" id="cursor-coords-box" aria-live="off">
+          CURSOR WGS84: 37.7350° N, -0.7850° E · Zoom 11
+        </div>
+        <div class="hud-box legend-items" aria-label="Leyenda del mapa">
+          <span class="legend-chip"><span class="legend-dot" style="background:#34d399;"></span>CTD Normal</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#fbbf24;"></span>CTD Vigilancia</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#f87171;"></span>CTD Alerta</span>
+          <span class="legend-chip"><span class="legend-dot legend-ring" style="border-color:#a78bfa;"></span>Secchi UPCT</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#c4b5fd;"></span>Playa CARM</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#38bdf8;"></span>Modelo Open-Meteo</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#f472b6;"></span>Biodiversidad GBIF</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANEL DERECHO: Inspección de Estación, Serie Histórica UPCT L4 y Procedencia/Limitaciones -->
+    <aside class="side-panel right-panel" aria-label="Inspección detallada, series históricas y procedencia">
+      <!-- 1. Inspector de elemento seleccionado en el mapa -->
+      <section class="panel-section" aria-labelledby="sec-inspector-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-inspector-title">Inspector de Punto / Estación</h2>
+          <span class="section-badge" id="inspector-badge">CTD</span>
+        </div>
+        <div id="station-inspector-content" aria-live="polite">
+          <p class="section-note" style="margin: 0;">
+            Seleccione una estación histórica CTD o Secchi (UPCT), una celda de modelo numérico (Open-Meteo), una playa del catálogo CARM o un registro de biodiversidad (GBIF) en el mapa para inspeccionar sus datos y metadatos verificables.
+          </p>
+        </div>
+      </section>
+
+      <!-- 2. Evolución Histórica Agregada L4 (UPCT THREDDS CSV) -->
+      <section class="panel-section" aria-labelledby="sec-series-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-series-title">Serie Histórica Lagunar L4 (UPCT)</h2>
+          <span class="section-badge" id="series-count-badge">Histórico L4</span>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" for="sel-series-param">
+            <span>Parámetro histórico agregado en UPCT THREDDS (CSV L4)</span>
+          </label>
+          <select id="sel-series-param" class="select-input">
+            <option value="temperatura">Temperatura media lagunar (°C)</option>
+            <option value="oxigeno">Oxígeno disuelto medio (mg/L)</option>
+            <option value="salinidad">Salinidad media (PSU)</option>
+            <option value="clorofila">Clorofila-a media (mg/m³)</option>
+            <option value="turbidez">Turbidez media (FTU)</option>
+            <option value="transparencia">Transparencia Disco Secchi (m)</option>
+          </select>
+        </div>
+
+        <div class="chart-container">
+          <svg id="series-svg-chart" class="chart-svg" viewBox="0 0 340 125" role="img" aria-label="Gráfico de evolución histórica del parámetro ambiental seleccionado en UPCT L4"></svg>
+          <div id="series-summary-line" class="prov-meta" style="margin-top: 6px;">
+            Consultando archivos CSV históricos L4 en servidor THREDDS de la UPCT…
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Auditoría de Procedencia, Frescura, Licencias y Limitaciones Verificadas -->
+      <section class="panel-section" aria-labelledby="sec-prov-title">
+        <div class="section-header">
+          <h2 class="section-title" id="sec-prov-title">Procedencia, Frescura y Limitaciones</h2>
+          <span class="section-badge">Auditoría CORS</span>
+        </div>
+        <div id="provenance-container" class="provenance-list" aria-live="polite">
+          <div class="prov-card">
+            <strong>Cargando registro de procedencia…</strong>
+            <div class="prov-meta">Esperando respuestas HTTP directas de las fuentes públicas con CORS.</div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Barra de navegación inferior para pantallas móviles y tabletas compactas -->
+  <nav class="mobile-nav" aria-label="Vistas en dispositivo móvil">
+    <button type="button" class="mobile-tab-btn" data-target="controls" aria-selected="false">
+      ⚙ Capas y Filtros
+    </button>
+    <button type="button" class="mobile-tab-btn" data-target="map" aria-selected="true">
+      ◎ Mapa Radar
+    </button>
+    <button type="button" class="mobile-tab-btn" data-target="telemetry" aria-selected="false">
+      📊 Datos y Fuentes
+    </button>
+  </nav>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
